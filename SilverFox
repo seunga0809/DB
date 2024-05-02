@@ -1,0 +1,135 @@
+from flask import Flask, request, jsonify
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import desc
+from flask import make_response
+import json
+from datetime import datetime, timedelta
+from sqlalchemy import Column, DECIMAL
+from sqlalchemy import func
+
+#데이터베이스 연결
+app = Flask(__name__)
+app.config['JSON_AS_ASCII'] = False
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql://silverfox:123123@localhost:5000/SilverFox?charset=utf8'
+
+
+db = SQLAlchemy(app)
+
+#profile 테이블
+class profile(db.Model):
+        member_id = db.Column(db.Integer, primary_key=True)
+        name = db.Column(db.VARCHAR(30))
+        age = db.Column(db.Integer)
+        height = db.Column(db.Integer)
+        init_weight = db.Column(db.Integer)
+        #date = db.Column(db.DateTime, default=datetime.utcnow)
+#workout 테이블
+class workout(db.Model):
+        workout_id = db.Column(db.Integer, primary_key =True)
+        member_id = db.Column(db.Integer)
+        date = db.Column(db.Date)
+        #date = db.Column(db.DateTime, default=datetime.utcnow)
+        distance = db.Column(db.Float)
+        workout_time = db.Column(db.Time)
+        today_weight = db.Column(db.Float)
+        oxygen = db.Column(db.Integer)
+        temp = db.Column(db.Float)
+        heart = db.Column(db.Float)
+#avg 테이블
+class avg(db.Model):
+        id = db.Column(db.Integer, primary_key=True)
+        avg_exer = db.Column(db.Float)
+        avg_time = db.Column(db.Time)
+        avg_weight = db.Column(db.Float)
+class month_avg(db.Model):
+        id = db.Column(db.Integer, primary_key=True)
+        avg_exer = db.Column(db.Float)
+        avg_time = db.Column(db.Time)
+        avg_weight = db.Column(db.Float)
+#개인정보 GET 전송
+@app.route('/profile', methods=['GET', 'POST'])
+def db_profile():
+        if request.method == 'GET':
+                profiles = profile.query.all()
+                data_profiles = [{'member_id':profile.member_id, 'name':profile.name, 'age':profile.age, 'height':profile.height, 'init_weight':profile.init_weight} for profile in profiles]
+
+                result_profile = json.dumps(data_profiles, ensure_ascii=False, indent=6)
+                res_profiles = make_response(result_profile)
+                return res_profiles
+        #개인정보 POST 저장
+        elif request.method == 'POST':
+                data = request.get_json()
+                member_id = data['member_id']
+                name = data['name']
+                age = data['age']
+                height = data['height']
+                init_weight = data['init_weight']
+                new_profile = profile(name=name, age=age, height=height, init_weight=init_weight)
+                db.session.add(new_profile)
+                db.session.commit()
+                return jsonify({'message':'profile added successfully'})
+#운동정보 GET 전송
+@app.route('/workout', methods=['GET', 'POST'])
+def db_workout():
+        if request.method == 'GET':
+                workouts = workout.query.all()
+                data_work = [{'workout_id':work.workout_id, 'member_id':work.member_id, 'time':work.workout_time.strftime("%H:%M:%S"), 'today_weight':work.today_weight, 'oxygen':work.oxygen, 'temp':work.temp, 'heart':work.heart} for work in workouts]
+                return jsonify({'workout_info':data_work})
+        #운동정보 POST 저장
+        elif request.method == 'POST':
+                data_work = request.get_json()
+                member_id = data_work['member_id']
+                date = data_work['date']
+                distance = data_work['distance']
+                workout_time = data_work['workout_time']
+                today_weight = data_exer['today_weight']
+                oxygen = data_exer['oxygen']
+                temp = data_exer['temp']
+                heart = data_exer['heart']
+                new_workout = workout(member_id=member_id, date=date, distance=distance, workout_time=workout_time, today_weight=today_weight, oxygen=oxygen, temp=temp, heart=heart)
+
+                db.session.add(new_workout)
+                db.session.commit()
+                return jsonify({'message':'workout added successfully'})
+
+#앱-메인페이지 전송 (심박, 체중, 체온, 시간, 거리, 산소)
+@app.route('/main', methods=['GET'])
+def main_info():
+        #내림차순 정렬 후 가장 최근 데이터를 가져옴
+        workout_data = workout.query.order_by(desc(workout.date)).first()
+        time_str = workout_data.workout_time.strftime("%H:%M")
+
+        data = {'last_workout_data':{'date':workout_data.date.strftime("%Y-%m-%d"), 'distance':workout_data.distance, 'workout_time':workout_data.workout_time.strftime("%H:%M"),'today_weight':workout_data.today_weight, 'oxygen':workout_data.oxygen, 'temp':workout_data.temp, 'heart':workout_data.heart}}
+        return jsonify(data)
+#앱-7일치 데이터 전
+@app.route('/days/<field>', methods=['GET'])
+def days_heart(field):
+        week_data = workout.query.order_by(desc(workout.date)).first()
+        oneWeek_data = week_data.date - timedelta(days=7)
+        OneWeek_data = workout.query.filter(workout.date > oneWeek_data).all()
+        data = {'7days_data':[]}
+        for data_days in OneWeek_data:
+                if field == 'workout_time':
+                        time_str = data_days.workout_time.strftime("%H:%M")
+                        data['7days_data'].append({'date':data_days.date.strftime("%Y-%m-%d"), 'workout_time':time_str})
+                else:
+                        data['7days_data'].append({'date':data_days.date.strftime("%Y-%m-%d"), field:getattr(data_days, field)})
+        return jsonify(data)
+
+#앱-한달치 요구시 데이터 전송
+@app.route('/months/<field>', methods=['GET'])
+def data_months(field):
+        latest_workout_data = workout.query.order_by(desc(workout.date)).first()
+        one_month_ago = latest_workout_data.date - timedelta(days=31)
+        workout_data_in_last_month = workout.query.filter(workout.date > one_month_ago).all()
+        data = {'31days_data':[]}
+        for workout_data in workout_data_in_last_month:
+                if field == 'workout_time':
+                        time_str = workout_data.workout_time.strftime("%H:%M")
+                        data['31days_data'].append({'date':workout_data.date.strftime("%Y-%m-%d"), 'workout_time':time_str})
+                else:
+                        data['31days_data'].append({'date':workout_data.date.strftime("%Y-%m-%d"), field:getattr(workout_data, field)})
+        return jsonify(data)
+
+if __name__ == '__main__':
+        app.run('0.0.0.0', port=5000, debug=True)
